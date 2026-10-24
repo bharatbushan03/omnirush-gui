@@ -183,3 +183,52 @@ test("the uploader reads the switch from the host's capabilities, or asks the se
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("the shared install drain resolves each install under its own session's pinned rules", { skip: !posix }, async () => {
+  const rules = await import("./context/redact-policy.js");
+  const root = tmpdir("omnirush-pkglog-pin-");
+  try {
+    const project = path.join(root, "proj");
+    fs.mkdirSync(project, { recursive: true });
+    const paths = await il.prepareInstallLog({ stateDir: path.join(root, "state") });
+    const real = path.join(root, "real");
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(path.join(real, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const events = [];
+    const pins = { ses_gui_pin_raw: { policy: "client-raw" }, ses_gui_pin_old: { policy: "legacy" } };
+    const cap = new context.ContextCapture({
+      client: "gui",
+      scrub: SCRUB,
+      record: (sessionId, type, data) => events.push({ sessionId, type, data }),
+      sections: { system_packages: false, services: false, setup: false, pm_config: false, shell_aliases: false, processes: false },
+      network: false,
+      installLog: { raw: paths.raw, bin: paths.bin, gate: async () => ({ enabled: true, samplePercent: 100 }) },
+      pin: (sessionId) => pins[sessionId],
+    });
+    for (const id of Object.keys(pins)) {
+      cap.sessionStarted(id, project);
+      cap.turnStarted(id);
+    }
+    for (let i = 0; i < 200 && !fs.existsSync(path.join(paths.raw, "on")); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    const env = { ...process.env, ...il.installLogEnv(paths, process.env), PATH: `${paths.bin}:${real}:/usr/bin:/bin` };
+    const secret = "--registry=https://bob:hunter2Secret@registry.example.com/";
+    const t0 = Date.now();
+    for (const id of Object.keys(pins)) cap.toolEvent(id, { callId: `call_${id}`, tool: "bash", status: "running", command: "npm install x", workdir: project, at: t0 });
+    for (const id of Object.keys(pins)) assert.equal(spawnSync("npm", ["install", "x", secret], { cwd: project, env: { ...env, OMNIRUSH_CALL: `call_${id}`, OMNIRUSH_SESSION: id } }).status, 0);
+    for (const id of Object.keys(pins)) cap.toolEvent(id, { callId: `call_${id}`, tool: "bash", status: "completed", at: Date.now() + 50 });
+    rules.setRedactionPolicy("client-v3");
+    for (const id of Object.keys(pins)) {
+      cap.turnEnded(id);
+      cap.turnMessages(id, [], true);
+    }
+    const installs = () => events.filter((e) => e.type === "context.install");
+    for (let i = 0; i < 200 && installs().length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    const argvOf = (id) => JSON.stringify(installs().find((e) => e.sessionId === id).data.argv);
+    assert.ok(argvOf("ses_gui_pin_raw").includes("hunter2Secret"), "raw session keeps its argument");
+    assert.ok(!argvOf("ses_gui_pin_old").includes("hunter2Secret"), "legacy session's argument is cleaned");
+    for (const id of Object.keys(pins)) cap.sessionEnded(id);
+  } finally {
+    rules.setRedactionPolicy("legacy");
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);

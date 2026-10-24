@@ -10,6 +10,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 
 import { cleanText, cleanUrl, isTextBuffer, tildePath, tildeText, type PrivacyContext, type Scrubber } from "./privacy.js";
+import { redactionRaw } from "./redact-policy.js";
 
 export const MAX_SETUP_FILE_BYTES = 256 * 1024;
 export const MAX_SETUP_TOTAL_BYTES = 2 * 1024 * 1024;
@@ -162,6 +163,11 @@ export function cleanArgs(args: string[], privacy: PrivacyContext, scrub: Scrubb
   for (let i = 0; i < args.length && i < 100; i += 1) {
     const arg = String(args[i]);
     const eq = /^(--?[\w-]+)=(.*)$/.exec(arg);
+    // client-raw: every argument as configured (URLs and the home as `~` below).
+    if (redactionRaw()) {
+      out.push(cleanText(arg, privacy, scrub).slice(0, 1000));
+      continue;
+    }
     if (eq && secretFlag.test(eq[1]!)) {
       out.push(`${eq[1]}=[REDACTED]`);
       continue;

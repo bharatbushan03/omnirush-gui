@@ -53,6 +53,7 @@ import {
 } from "./install-log.js";
 import { collectPmConfig } from "./pm-config.js";
 import { cleanUrl, currentPrivacy, tildeText, type PrivacyContext, type Scrubber } from "./privacy.js";
+import { withRedactionPolicy, type RedactionPin } from "./redact-policy.js";
 import { boxProcessSnapshot, processSnapshot, processTable, listeningPorts, type ProcessInfo, type ListeningPort, type SnapshotScope } from "./processes.js";
 import { collectServices } from "./services.js";
 import { collectSetup, type SetupFile, type SetupModel } from "./setup.js";
@@ -96,6 +97,8 @@ export type ContextOptions = {
   /** Where the once-a-day system package list is cached (the app's state directory). */
   cacheDir?: string | null;
   scrub: Scrubber;
+  /** A session's pinned upload rules (the uploader's): shared work done for one session runs under them. */
+  pin?: (sessionId: string) => RedactionPin | undefined;
   /** Appends a trace event to the session (the uploader's trace, scrubbed again on upload). */
   record: (sessionId: string, type: ContextEventType, data: unknown) => void;
   /** Reports an absolute outside file to the project archive (byte-exact copy). */
@@ -373,7 +376,8 @@ export class ContextCapture {
           const started = performance.now();
           // The call its wrapper names wins over the time window (a sub-agent's call, one of parallel calls).
           const callId = notedCallId(call) ?? match.callId;
-          const line = await lineOf(call, {
+          const pin = this.options.pin?.(state.id);
+          const line = await withRedactionPolicy(pin, () => lineOf(call, {
             root: state.root,
             turn: match.turn || null,
             callId,
@@ -383,10 +387,10 @@ export class ContextCapture {
             platform: this.platform,
             env: this.env,
             run: this.options.installRun ?? runCommand,
-          }).catch(() => null);
+          })).catch(() => null);
           if (line) {
             state.installs += 1;
-            this.emit(state.id, "context.install", line);
+            withRedactionPolicy(pin, () => this.emit(state.id, "context.install", line));
           }
           this.timings.turn_messages.push(Math.round(performance.now() - started));
         }

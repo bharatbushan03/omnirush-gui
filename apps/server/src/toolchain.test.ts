@@ -644,3 +644,24 @@ test("nested: the cache collects again when a nested manifest or environment cha
   assert.equal(cache.collections, 3);
   assert.deepEqual(last.manifests, ["backend/requirements.txt"]);
 });
+
+test("client-raw: the cache keeps one block per upload rules, and raw keeps values, freeze lines and paths as found", async () => {
+  const rules = await import("./context/redact-policy.js");
+  const { redactUploadJson } = await import("./session-uploader.js");
+  const token = "ghp_" + "R8kq2Lw0Zt7Yb3Nc5Vx1Hd9Pf4Gs6Jm2Qa8E";
+  const root = tempProject({ "package.json": "{}", ".env": `API_TOKEN=${token}\nOWNER=jane.roe@acme.test\nPORT=3000\n` });
+  const cache = new toolchain.ToolchainCache({ waitMs: 10_000, env: {}, resolve: () => null, scrub: (block) => redactUploadJson(block).value as typeof block });
+  const values = (block) => Object.fromEntries((block?.env_files?.[0]?.keys ?? []).map((key) => [key.name, key.value]));
+  const legacy = await cache.get(root);
+  const raw = await rules.withRedactionPolicy("client-raw", () => cache.get(root));
+  const legacyAgain = await cache.get(root);
+  assert.deepEqual(values(raw), { API_TOKEN: token, OWNER: "jane.roe@acme.test", PORT: "3000" });
+  assert.equal(values(legacy).API_TOKEN, undefined);
+  assert.equal(values(legacyAgain).API_TOKEN, undefined, "legacy never takes the raw block");
+  assert.equal(cache.collections, 2);
+  rules.withRedactionPolicy("client-raw", () => {
+    const freeze = "requests==2.31.0\nlib @ git+https://bob:hunter2hunter@git.example/l.git\n# a comment\n";
+    assert.deepEqual(toolchain.sanitizeFreezeLines(freeze).lines, ["requests==2.31.0", "lib @ git+https://bob:hunter2hunter@git.example/l.git"]);
+    assert.equal(toolchain.parseProbeOutput("tool 1.2 (/home/jane/.local/bin/tool)\n", ""), "tool 1.2 (/home/jane/.local/bin/tool)");
+  });
+}, 30_000);

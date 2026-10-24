@@ -123,6 +123,8 @@ const SECRET_QUERY_KEY = /(?:token|key|secret|password|passwd|pwd|auth|sig|signa
 
 /** A URL without userinfo and without secret-looking query values (unparseable: returned scrub-ready as given). */
 export function cleanUrl(raw: string): string {
+  // client-raw: the address as written.
+  if (redactionRaw()) return raw;
   const trimmed = raw.trim();
   try {
     const url = new URL(trimmed);
@@ -146,6 +148,7 @@ export function cleanUrl(raw: string): string {
 
 /** Every URL inside free text without userinfo. */
 export function stripUrlUserinfo(text: string): string {
+  if (redactionRaw()) return text;
   return text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^/@\s"'`]+@/gi, "$1");
 }
 

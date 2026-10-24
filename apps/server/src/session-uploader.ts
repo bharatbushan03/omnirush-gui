@@ -4925,6 +4925,7 @@ export class SessionUploader {
         content: (path, text) => redactUploadContent(path, text),
       },
       record: (sessionId, type, data) => this.recordContext(sessionId, type, data),
+      pin: (sessionId) => this.pinOf(sessionId),
       reportPath: (sessionId, absolute) => this.onPathTouched?.(sessionId, absolute),
       // Until the archive's rules are loaded nothing outside is archived.
       exclusion: (absolute) => (exclusion ? exclusion(absolute) : "pending"),
@@ -5272,11 +5273,12 @@ export class SessionUploader {
   /** `turnsBefore`: the turns a reopened chat already had, so capture context numbers its turns on from them. */
   startSession(sessionId: string, workspaceId: string, root: string, options: { turnsBefore?: number } = {}): void {
     if (!this.enabled || this.sessions.has(sessionId) || !/^[A-Za-z0-9._:-]{8,128}$/.test(sessionId)) return;
-    // toolchain.ts: collected in the background (a box chat's in its box).
-    void (this.boxes.has(sessionId) ? this.boxToolchains : this.toolchains)?.get(root).catch(() => null);
     const state = this.newSessionState(sessionId, workspaceId, root, this.acquireCache(root));
     state.ready = this.prepareSession(state);
     this.sessions.set(sessionId, state);
+    // toolchain.ts: collected in the background (a box chat's in its box), under the chat's final pin.
+    const toolchains = this.boxes.has(sessionId) ? this.boxToolchains : this.toolchains;
+    void state.ready.then(() => withRedactionPolicy(state.redactionPolicy, () => toolchains?.get(root))).catch(() => null);
     this.journalMeta(state);
     // Capture context collects once the start snapshot is out.
     let startSnapshotDone: () => void = () => undefined;
@@ -7464,10 +7466,12 @@ export class SessionUploader {
     state.refused = [...(record.refused ?? [])];
     state.endedAt = record.endedAt;
     state.resumed = state.segment > 1;
+    // The chat's own rules, whatever this process's switch says now.
+    state.redactionPolicy = pinnedPolicy(record, state.redactionPolicy);
     const at = new Date().toISOString();
     const events: TraceEvent[] = [{ at, type: "collector.repair", data: { reason: "integrity_gaps", gaps: gaps.slice(0, 200), parts: parts.length } }];
     parts.forEach((messages, index) => events.push({ at, type: "turn.messages", data: { messages, part: index + 1, parts: parts.length, repair: true } }));
-    await this.uploadTrace(state, events);
+    await withRedactionPolicy(state.redactionPolicy, () => this.uploadTrace(state, events));
     this.log("info", "OmniRush session transcript re-sent for the server's gaps", { sessionId, gaps: gaps.length, parts: parts.length });
     return true;
   }
@@ -7761,6 +7765,9 @@ export class SessionUploader {
       state.refused = [...(record?.refused ?? [])];
       state.endedAt = record?.endedAt;
       state.resumed = state.segment > 1;
+      // The chat's own rules, whatever this process's switch says now (a chat the server knows but
+      // this ledger lost went up before pins: never raw).
+      state.redactionPolicy = pinnedPolicy(record ?? (server ? { segment: server.segment, nextSequence: server.sequence, lastSeenAt: "" } : undefined), state.redactionPolicy);
       for (const event of events) {
         for (const evidence of knownToolPathEvidence(event.type, event.data)) {
           const path = workspaceRelativePath(state.root, evidence.path.replaceAll("\\", "/"));
@@ -7789,7 +7796,7 @@ export class SessionUploader {
       // when the trace says so (its trigger), not as a missing start.
       const trigger = (await this.uploadFeatures()).recoveredSegments ? "session_recovered" as const : "trace_flush" as const;
       try {
-        await this.uploadTrace(state, [marker, ...events, ...endMarker], trigger);
+        await withRedactionPolicy(state.redactionPolicy, () => this.uploadTrace(state, [marker, ...events, ...endMarker], trigger));
       } catch (error) {
         // Refused (a 422): recovered data is never dropped; the next start tries again, up to the age limit.
         this.log("warn", "OmniRush session journal upload refused; kept for the next start", { sessionId: meta.session_id, error: error instanceof Error ? error.message : "unknown" });
@@ -7797,7 +7804,7 @@ export class SessionUploader {
       }
       if (endMissing) {
         // Sent, or spooled for a retry: either way the end exists now.
-        if (await this.uploadWorkspace(state, "end", "session_end").catch(() => false)) state.endedAt = new Date().toISOString();
+        if (await withRedactionPolicy(state.redactionPolicy, () => this.uploadWorkspace(state, "end", "session_end")).catch(() => false)) state.endedAt = new Date().toISOString();
         this.log("info", "OmniRush session end recovered", { sessionId: meta.session_id, sent: Boolean(state.endedAt) });
         await this.persistSession(state).catch(() => undefined);
       }

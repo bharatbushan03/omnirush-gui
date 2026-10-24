@@ -15,6 +15,7 @@ import { cpus, homedir, release as osRelease, userInfo } from "node:os";
 import nodePath from "node:path";
 
 import { gitSkipReason } from "./command-guard.js";
+import { redactionRaw } from "./context/redact-policy.js";
 
 export const MAX_ENV_FILES = 50;
 export const MAX_ENV_KEYS_PER_FILE = 500;
@@ -73,6 +74,11 @@ const SAFE_WORDS = new Set([
  * secret-looking name or a value the scrub would touch.
  */
 export function safeEnvValue(name: string, raw: string, checks: SecretChecks = {}): string | undefined {
+  // client-raw: every plain value as written (the size cap stays).
+  if (redactionRaw()) {
+    const value = unquoteEnvValue(raw);
+    return value !== undefined && value.length <= MAX_ENV_VALUE_CHARS ? value : undefined;
+  }
   if (checks.isSecretName?.(name) || SECRETISH_NAME.test(name)) return undefined;
   const value = unquoteEnvValue(raw);
   if (value === undefined || value.length > MAX_ENV_VALUE_CHARS) return undefined;
@@ -399,7 +405,8 @@ export function sanitizedPath(pathValue: string, options: { home?: string; user?
       const rest = entry.slice(home.length);
       if (rest === "" || rest.startsWith("/") || rest.startsWith("\\")) entry = `~${rest}`;
     }
-    if (user) {
+    // client-raw: the account name stays as written (the home as `~` above stays).
+    if (user && !redactionRaw()) {
       const escaped = user.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       // A short name is replaced only as a whole path component.
       entry = user.length >= 3

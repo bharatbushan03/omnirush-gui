@@ -21,6 +21,7 @@ import { constants as osConstants, setPriority } from "node:os";
 import nodePath from "node:path";
 
 import { cltSkipReason, resolveCommand } from "./command-guard.js";
+import { redactionPolicy, redactionRaw } from "./context/redact-policy.js";
 import {
   collectEnvFiles,
   collectEnvNamesRead,
@@ -486,7 +487,7 @@ export function parseProbeOutput(stdout: string, stderr: string, preferStderr = 
   const pick = (text: string) => text.replace(ANSI, "").split(/\r?\n/).map((part) => part.trim()).find((part) => (line ? line.test(part) : part.length > 0)) ?? "";
   const first = preferStderr ? (pick(stderr) || pick(stdout)) : (pick(stdout) || pick(stderr));
   if (!first) return null;
-  const clean = stripPaths(first).replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  const clean = (redactionRaw() ? first : stripPaths(first)).replace(/[\u0000-\u001f\u007f]/g, " ").trim();
   if (!clean) return null;
   return clean.length > MAX_VERSION_CHARS ? clean.slice(0, MAX_VERSION_CHARS) : clean;
 }
@@ -526,7 +527,10 @@ export function sanitizeFreezeLines(
       continue;
     }
     let entry: string | null = null;
-    if (/^(-e|--editable)\s+/.test(line)) {
+    // client-raw: every requirement line as pip printed it.
+    if (redactionRaw()) {
+      entry = line;
+    } else if (/^(-e|--editable)\s+/.test(line)) {
       const target = line.replace(/^(-e|--editable)\s+/, "");
       const vcs = /^(git|hg|svn|bzr)\+/i.test(target);
       const name = packageNameFrom(target) ?? pendingEditableName ?? (vcs ? null : localName(target));
@@ -939,7 +943,9 @@ export class ToolchainCache {
 
   async get(root: string, waitMs = this.options.waitMs ?? 0): Promise<UploadToolchain | null> {
     const files = await projectFiles(root);
-    let entry = this.entries.get(root);
+    // One entry per root and upload rules: a block scrubbed under one session's rules never goes out under another's.
+    const key = `${root}\0${redactionPolicy()}`;
+    let entry = this.entries.get(key);
     if (!entry || entry.signature !== files.signature) {
       const previous = entry?.value ?? null;
       this.collections += 1;
@@ -951,7 +957,7 @@ export class ToolchainCache {
           return toolchain;
         })
         .catch(() => next.value);
-      this.entries.set(root, next);
+      this.entries.set(key, next);
       entry = next;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;

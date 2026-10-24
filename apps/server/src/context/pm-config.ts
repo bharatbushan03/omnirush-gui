@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { quietEnv, runTool, type Runner } from "./exec.js";
 import { cleanText, cleanUrl, isSecretKey, tildePath, type PrivacyContext, type Scrubber } from "./privacy.js";
+import { redactionRaw } from "./redact-policy.js";
 
 const MAX_CONFIG_FILE_BYTES = 256 * 1024;
 const MAX_ENTRIES_PER_FILE = 200;
@@ -184,7 +185,7 @@ export function filterEntries(pairs: Array<[string, string]>, privacy: PrivacyCo
   const entries: Record<string, string> = {};
   let dropped = 0;
   for (const [key, value] of pairs) {
-    if (isDroppedKey(key)) {
+    if (!redactionRaw() && isDroppedKey(key)) {
       dropped += 1;
       continue;
     }

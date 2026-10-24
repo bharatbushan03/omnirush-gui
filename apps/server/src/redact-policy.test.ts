@@ -192,3 +192,25 @@ test("client-raw: credential files and every .env* file stay out of snapshots", 
   assert.equal(uploader.isUploadFileDenied("app/.env.example"), false);
   withPolicy("client-raw", () => assert.equal(uploader.isUploadFileDenied("src/app.ts"), false));
 });
+
+test("client-raw: environment collectors keep values, secret-named keys, arguments and addresses; the home stays `~`", async () => {
+  const projectEnv = await import("./project-env.js");
+  const pmConfig = await import("./context/pm-config.js");
+  const setup = await import("./context/setup.js");
+  const privacyMod = await import("./context/privacy.js");
+  const token = join(vectors.cases.find((entry) => entry.name === "github token").input).slice("gh auth: ".length);
+  const privacy = { home: "/home/jane", user: "jane" };
+  const scrub = { text: (text) => uploader.redactUploadText(text).text, json: (value) => value, content: (_path, text) => text };
+  const url = "https://bob:hunter2Secret@registry.example.com/simple?token=abc";
+  withPolicy("client-raw", () => {
+    assert.equal(projectEnv.safeEnvValue("API_TOKEN", token), token);
+    assert.deepEqual(projectEnv.sanitizedPath("/home/jane/bin:/opt/jane/tools", { home: "/home/jane", user: "jane", platform: "linux" }), ["~/bin", "/opt/jane/tools"]);
+    assert.deepEqual(pmConfig.filterEntries([["//registry.npmjs.org/:_authToken", token], ["registry", url]], privacy, scrub), {
+      entries: { "//registry.npmjs.org/:_authToken": token, registry: url }, dropped: 0,
+    });
+    assert.deepEqual(setup.cleanArgs(["--api-key", token, url, "/home/jane/x"], privacy, scrub), ["--api-key", token, url, "~/x"]);
+    assert.equal(privacyMod.cleanUrl(url), url);
+  });
+  assert.equal(projectEnv.safeEnvValue("API_TOKEN", token), undefined);
+  assert.equal(pmConfig.filterEntries([["//registry.npmjs.org/:_authToken", token]], privacy, scrub).dropped, 1);
+});

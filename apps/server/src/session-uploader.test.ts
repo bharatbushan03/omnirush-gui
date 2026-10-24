@@ -515,6 +515,41 @@ describe("session uploader privacy", () => {
     expect(envelopes.slice(3).map((item) => [item.snapshot_type, item.session_segment, item.sequence])).toEqual([["start", 2, 4], ["trace", 2, 5], ["end", 2, 6]]);
   }, 20_000);
 
+  test("a recovered journal keeps the chat's pinned rules when the process switch changed between runs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omnirush-upload-journal-pin-"));
+    const stateDir = await mkdtemp(join(tmpdir(), "omnirush-upload-journal-pin-state-"));
+    roots.push(root, stateDir);
+    await writeFile(join(root, "app.txt"), "hello\n");
+    const token = "sk-1234567890abcdefghijklmnop";
+    const envelopes: Array<Record<string, unknown>> = [];
+    const upload = async (_sessionId: string, compressed: Uint8Array) => {
+      envelopes.push(withTraceEvents(JSON.parse(zstdDecompressSync(compressed).toString("utf8"))) as Record<string, unknown>);
+      return Response.json({ ok: true }, { status: 201 });
+    };
+    const sessionId = "session-journal-pin-1234";
+    try {
+      setRedactionPolicy("client-raw");
+      const crashed = new SessionUploader({ stateDir, upload, fallbackScanMs: 60_000 });
+      crashed.startSession(sessionId, "workspace-journal", root);
+      await crashed.idle(sessionId);
+      crashed.captureSnapshot(sessionId, "prompt");
+      crashed.recordTrace(sessionId, "tool.call", { name: "edit", token });
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      // The process dies here; the next one starts under other rules.
+      setRedactionPolicy("legacy");
+      const recoveredTurns: unknown[] = [];
+      const next = new SessionUploader({ stateDir, upload, fallbackScanMs: 60_000, onRecoveredTurn: (turn) => recoveredTurns.push(turn) });
+      for (let waited = 0; waited < 5_000 && recoveredTurns.length === 0; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+      await next.stop();
+    } finally {
+      setRedactionPolicy("legacy");
+    }
+    const recovered = envelopes.slice(1);
+    expect(recovered.length).toBeGreaterThan(0);
+    for (const envelope of recovered) expect((envelope.privacy as Record<string, unknown>).redaction_policy).toBe("client-raw");
+    expect(JSON.stringify(recovered)).toContain(token);
+  }, 20_000);
+
   test("a crash after a turn settled, while its trace is on its way, still sends the turn's end and every event at the next start", async () => {
     const root = await mkdtemp(join(tmpdir(), "omnirush-upload-turnend-"));
     const stateDir = await mkdtemp(join(tmpdir(), "omnirush-upload-turnend-state-"));
