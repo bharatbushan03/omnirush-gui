@@ -148,8 +148,10 @@ export function parseMavenSettings(text: string): Array<[string, string]> {
       if (value !== null) out.push([`mirrors[${index}].${name}`, value]);
     }
   });
+  // client-raw: the credentials too (the old rules never read them).
+  const raw = redactionRaw();
   blocks("proxy").forEach((block, index) => {
-    for (const name of ["id", "active", "protocol", "host", "port", "nonProxyHosts"]) {
+    for (const name of ["id", "active", "protocol", "host", "port", "nonProxyHosts", ...(raw ? ["username", "password"] : [])]) {
       const value = tag(block, name);
       if (value !== null) out.push([`proxies[${index}].${name}`, value]);
     }
@@ -161,8 +163,10 @@ export function parseMavenSettings(text: string): Array<[string, string]> {
     }
   });
   blocks("server").forEach((block, index) => {
-    const id = tag(block, "id");
-    if (id !== null) out.push([`servers[${index}].id`, id]);
+    for (const name of raw ? ["id", "username", "password", "privateKey", "passphrase"] : ["id"]) {
+      const value = tag(block, name);
+      if (value !== null) out.push([`servers[${index}].${name}`, value]);
+    }
   });
   return out;
 }

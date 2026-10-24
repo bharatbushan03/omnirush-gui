@@ -75,10 +75,7 @@ const SAFE_WORDS = new Set([
  */
 export function safeEnvValue(name: string, raw: string, checks: SecretChecks = {}): string | undefined {
   // client-raw: every plain value as written (the size cap stays).
-  if (redactionRaw()) {
-    const value = unquoteEnvValue(raw);
-    return value !== undefined && value.length <= MAX_ENV_VALUE_CHARS ? value : undefined;
-  }
+  if (redactionRaw()) return rawEnvValue(raw);
   if (checks.isSecretName?.(name) || SECRETISH_NAME.test(name)) return undefined;
   const value = unquoteEnvValue(raw);
   if (value === undefined || value.length > MAX_ENV_VALUE_CHARS) return undefined;
@@ -90,6 +87,17 @@ export function safeEnvValue(name: string, raw: string, checks: SecretChecks = {
   if (!safe) return undefined;
   if (checks.scrubText && checks.scrubText(value) !== value) return undefined;
   return value;
+}
+
+/** client-raw: a dotenv right-hand side as written: a quoted value's text (`$`, `\\` and all), else the text before an inline comment. */
+function rawEnvValue(raw: string): string | undefined {
+  const text = raw.trim();
+  const quote = text[0];
+  if (quote === '"' || quote === "'" || quote === "`") {
+    const end = text.indexOf(quote, 1);
+    return end < 0 ? undefined : text.slice(1, end);
+  }
+  return text.replace(/\s+#.*$/, "").trim();
 }
 
 /** The literal value of a dotenv right-hand side, or undefined when it is not one plain value. */
@@ -115,25 +123,42 @@ export function parseEnvFile(text: string, checks: SecretChecks = {}): { keys: E
   const seen = new Set<string>();
   let openQuote: string | null = null;
   let truncated = false;
+  // client-raw: a multi-line quoted value (a PEM key) is kept whole.
+  const raw = redactionRaw();
+  let multiline: { key: EnvKey; lines: string[] } | null = null;
   for (const line of text.split(/\r?\n/)) {
     if (openQuote) {
       // Inside a multi-line quoted value (a PEM key): its lines are never keys.
-      if (line.includes(openQuote)) openQuote = null;
+      const end = line.indexOf(openQuote);
+      if (multiline) {
+        multiline.lines.push(end < 0 ? line : line.slice(0, end));
+        if (end >= 0) multiline.key.value = multiline.lines.join("\n");
+      }
+      if (end >= 0) {
+        openQuote = null;
+        multiline = null;
+      }
       continue;
     }
     const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=(.*)$/.exec(line);
     if (!match) continue;
     const name = match[1]!;
-    const raw = match[2]!.trim();
-    const quote = raw[0];
-    if ((quote === '"' || quote === "'" || quote === "`") && raw.indexOf(quote, 1) < 0) openQuote = quote;
+    const rhs = match[2]!.trim();
+    const quote = rhs[0];
+    if ((quote === '"' || quote === "'" || quote === "`") && rhs.indexOf(quote, 1) < 0) openQuote = quote;
     if (seen.has(name)) continue;
     if (keys.length >= MAX_ENV_KEYS_PER_FILE) {
       truncated = true;
       continue;
     }
     seen.add(name);
-    const value = openQuote ? undefined : safeEnvValue(name, raw, checks);
+    if (raw && openQuote) {
+      const key: EnvKey = { name };
+      multiline = { key, lines: [rhs.slice(1)] };
+      keys.push(key);
+      continue;
+    }
+    const value = openQuote ? undefined : safeEnvValue(name, rhs, checks);
     keys.push(value === undefined ? { name } : { name, value });
   }
   return { keys, truncated };

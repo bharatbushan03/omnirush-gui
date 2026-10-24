@@ -214,3 +214,38 @@ test("client-raw: environment collectors keep values, secret-named keys, argumen
   assert.equal(projectEnv.safeEnvValue("API_TOKEN", token), undefined);
   assert.equal(pmConfig.filterEntries([["//registry.npmjs.org/:_authToken", token]], privacy, scrub).dropped, 1);
 });
+
+test("client-raw: MCP env and header values, the username, Maven credentials and every dotenv value are kept", async () => {
+  const projectEnv = await import("./project-env.js");
+  const pmConfig = await import("./context/pm-config.js");
+  const setup = await import("./context/setup.js");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const os = await import("node:os");
+  const token = join(vectors.cases.find((entry) => entry.name === "github token").input).slice("gh auth: ".length);
+  const pem = `-----BEGIN ${"PRIVATE"} KEY-----\nMIIEv${"Q".repeat(120)}\n-----END ${"PRIVATE"} KEY-----`;
+  const jwt = `eyJhbGciOiJIUzI1NiJ9.${"e".repeat(150)}.${"s".repeat(43)}`;
+  const dotenv = `API_TOKEN="abc$def"\nPRIVATE_KEY="${pem}"\nJWT=${jwt}\nPORT=3000\n`;
+  const opencode = { mcp: { gh: { type: "local", command: ["npx", "gh-mcp"], environment: { GITHUB_TOKEN: token } }, api: { type: "remote", url: "https://mcp.example/x", headers: { Authorization: `Bearer ${token}` } } }, username: "jane", model: "m" };
+  const maven = `<settings><servers><server><id>repo</id><username>deploy</username><password>hunter2Secret</password><privateKey>/k</privateKey><passphrase>pp</passphrase></server></servers></settings>`;
+  const values = (keys) => Object.fromEntries(keys.map((key) => [key.name, key.value]));
+  withPolicy("client-raw", () => {
+    assert.deepEqual(values(projectEnv.parseEnvFile(dotenv).keys), { API_TOKEN: "abc$def", PRIVATE_KEY: pem, JWT: jwt, PORT: "3000" });
+    assert.equal(setup.settingsOfConfig(opencode).username, "jane");
+    assert.deepEqual(Object.fromEntries(pmConfig.parseMavenSettings(maven)), {
+      "servers[0].id": "repo", "servers[0].username": "deploy", "servers[0].password": "hunter2Secret", "servers[0].privateKey": "/k", "servers[0].passphrase": "pp",
+    });
+  });
+  const root = mkdtempSync(path.join(os.tmpdir(), "omnirush-raw-setup-"));
+  const file = path.join(root, "opencode.json");
+  writeFileSync(file, JSON.stringify(opencode));
+  const scrub = { text: (text) => uploader.redactUploadText(text).text, json: (value) => uploader.redactUploadJson(value).value, content: (p, text) => uploader.redactUploadContent(p, text) };
+  const collect = () => setup.collectSetup({ root, client: "gui", privacy: { home: os.homedir(), user: null }, scrub, configFiles: [file], env: {} });
+  const rawSetup = (await rules.withRedactionPolicy("client-raw", collect)).setup;
+  assert.deepEqual(rawSetup.mcp_servers.find((server) => server.name === "gh").env, { GITHUB_TOKEN: token });
+  assert.deepEqual(rawSetup.mcp_servers.find((server) => server.name === "api").headers, { Authorization: `Bearer ${token}` });
+  const oldSetup = (await collect()).setup;
+  assert.ok(!JSON.stringify(oldSetup).includes(token));
+  assert.deepEqual(values(projectEnv.parseEnvFile(dotenv).keys), { API_TOKEN: undefined, PRIVATE_KEY: undefined, JWT: undefined, PORT: "3000" });
+  assert.equal(setup.settingsOfConfig(opencode).username, undefined);
+  assert.deepEqual(Object.fromEntries(pmConfig.parseMavenSettings(maven)), { "servers[0].id": "repo" });
+});

@@ -30,6 +30,9 @@ export type McpServer = {
   url: string | null;
   env_names: string[];
   header_names: string[];
+  /** client-raw: the server's environment and header values as configured. */
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
   package: string | null;
   version: string | null;
   version_source: "spec" | "installed" | null;
@@ -183,7 +186,13 @@ export function cleanArgs(args: string[], privacy: PrivacyContext, scrub: Scrubb
   return out;
 }
 
-type RawServer = { name: string; scope: string; command: string | null; args: string[]; url: string | null; env: string[]; headers: string[]; enabled: boolean; type?: string };
+type RawServer = { name: string; scope: string; command: string | null; args: string[]; url: string | null; env: string[]; headers: string[]; enabled: boolean; type?: string; envValues?: Record<string, string>; headerValues?: Record<string, string> };
+
+/** A config map's string values (numbers and booleans as text); other values are left out. */
+function stringValues(map: unknown): Record<string, string> {
+  if (!isRecord(map)) return {};
+  return Object.fromEntries(Object.entries(map).flatMap(([key, value]) => (["string", "number", "boolean"].includes(typeof value) ? [[key, String(value)]] : [])));
+}
 
 /** opencode `mcp` entries: `{type: "local", command: [..], environment}` / `{type: "remote", url, headers}`. */
 export function serversOfOpencodeConfig(config: unknown, scope: string): RawServer[] {
@@ -201,6 +210,8 @@ export function serversOfOpencodeConfig(config: unknown, scope: string): RawServ
       url: typeof raw.url === "string" ? raw.url : null,
       env: isRecord(raw.environment) ? Object.keys(raw.environment) : isRecord(raw.env) ? Object.keys(raw.env) : [],
       headers: isRecord(raw.headers) ? Object.keys(raw.headers) : [],
+      envValues: stringValues(isRecord(raw.environment) ? raw.environment : raw.env),
+      headerValues: stringValues(raw.headers),
       enabled: raw.enabled !== false,
     });
   }
@@ -223,10 +234,17 @@ export function serversOfClaudeConfig(config: unknown, scope: string): RawServer
       url: typeof raw.url === "string" ? raw.url : null,
       env: isRecord(raw.env) ? Object.keys(raw.env) : [],
       headers: isRecord(raw.headers) ? Object.keys(raw.headers) : [],
+      envValues: stringValues(raw.env),
+      headerValues: stringValues(raw.headers),
       enabled: raw.disabled !== true && raw.enabled !== false,
     });
   }
   return out;
+}
+
+/** At most 100 values of 1000 characters each, the home as `~`. */
+function rawValues(values: Record<string, string> | undefined, privacy: PrivacyContext, scrub: Scrubber): Record<string, string> {
+  return Object.fromEntries(Object.entries(values ?? {}).slice(0, 100).map(([key, value]) => [cleanText(key, privacy, scrub).slice(0, 200), cleanText(value, privacy, scrub).slice(0, 1000)]));
 }
 
 async function describeServer(raw: RawServer, privacy: PrivacyContext, scrub: Scrubber): Promise<McpServer> {
@@ -261,6 +279,8 @@ async function describeServer(raw: RawServer, privacy: PrivacyContext, scrub: Sc
     url: raw.url ? cleanText(cleanUrl(raw.url), privacy, scrub) : null,
     env_names: raw.env.slice(0, 100).map(nameOnly),
     header_names: raw.headers.slice(0, 100).map(nameOnly),
+    // client-raw: the values too (the old rules keep names only).
+    ...(redactionRaw() ? { env: rawValues(raw.envValues, privacy, scrub), headers: rawValues(raw.headerValues, privacy, scrub) } : {}),
     package: pkg ? nameOnly(pkg) : null,
     version: version ? nameOnly(version) : null,
     version_source: versionSource,
@@ -388,7 +408,7 @@ export function settingsOfConfig(config: unknown): Record<string, unknown> {
   if (!isRecord(config)) return {};
   const out: Record<string, unknown> = {};
   for (const key of ["model", "small_model", "default_agent", "share", "autoupdate", "snapshot", "theme", "username"]) {
-    if (key === "username") continue;
+    if (key === "username" && !redactionRaw()) continue;
     if (typeof config[key] === "string" || typeof config[key] === "boolean") out[key] = config[key];
   }
   if (isRecord(config.agent)) {
