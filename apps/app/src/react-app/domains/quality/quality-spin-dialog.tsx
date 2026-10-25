@@ -80,7 +80,7 @@ function useCountUp(value: number, active: boolean, reducedMotion: boolean, dura
 type Phase = "idle" | "requesting" | "spinning" | "result" | "error";
 
 function recentSpinLabel(spin: OmniRushQualitySpinRecord): string {
-  if (spin.status === "spun") return spin.prizeTokens !== null ? compactTokenCount(spin.prizeTokens) : "spun";
+  if (spin.status === "spin") return spin.prizeTokens !== null ? compactTokenCount(spin.prizeTokens) : "spin";
   return spin.status === "ready" ? "ready" : spin.status;
 }
 
@@ -260,7 +260,7 @@ export function QualitySpinPanel(props: QualitySpinPanelProps) {
     ? [
         result.preview || result.capped ? spinPayoutText(result) : result.potBalance !== null ? `Pot: ${compactTokenCount(result.potBalance)} tokens` : "Added to your pot",
         `${spinsLeft} spin${spinsLeft === 1 ? "" : "s"} left`,
-        result.alreadySpun ? "already counted" : null,
+        result.alreadySpin ? "already counted" : null,
       ].filter(Boolean).join(" · ")
     : "";
 
@@ -356,8 +356,8 @@ export function QualitySpinPanel(props: QualitySpinPanelProps) {
 
       <DialogFooter className="sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground" data-testid="quality-spin-totals">
-          {totals && totals.spun > 0
-            ? `${totals.spun} spin${totals.spun === 1 ? "" : "s"} so far · ${compactTokenCount(totals.paidTokens)} tokens won`
+          {totals && totals.spin > 0
+            ? `${totals.spin} spin${totals.spin === 1 ? "" : "s"} so far · ${compactTokenCount(totals.paidTokens)} tokens won`
             : null}
         </p>
         {spinsLeft > 0 || busy ? (

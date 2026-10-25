@@ -195,7 +195,7 @@ describe("Update now", () => {
 
 describe("required version the feed does not offer", () => {
   // 3.3.8 was published after 3.4.1 and marked Latest while the server
-  // required 3.4.1: the check found nothing newer, the button spun and stopped.
+  // required 3.4.1: the check found nothing newer, the button spin and stopped.
   const gated: UpdateGateState = { ...blocked, current: "3.3.8", minimum: "3.4.1" };
 
   test("a finished check with nothing newer is a dead end the gate names", () => {

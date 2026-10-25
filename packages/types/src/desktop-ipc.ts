@@ -233,7 +233,7 @@ export type OmniRushAccountQuality = {
   /** Newest first, up to 5. */
   notices: OmniRushQualityNotice[];
   mode: "shadow" | "enforce";
-  /** The daily budget is spent: only reproducible spins can be spun until tomorrow. */
+  /** The daily budget is spent: only reproducible spins can be spin until tomorrow. */
   resting: boolean;
   preview: boolean;
   /** Consecutive UTC days with a reproducible session. */
@@ -501,7 +501,7 @@ export type OmniRushSessionStatus = {
 
 export type OmniRushQualitySpinRecord = {
   id: string;
-  status: "ready" | "spun" | "expired" | "forfeit";
+  status: "ready" | "spin" | "expired" | "forfeit";
   reason: string | null;
   reproducible: boolean;
   /** Earned by a replay-ready (client-grade) session. */
@@ -509,7 +509,7 @@ export type OmniRushQualitySpinRecord = {
   sessionId: string | null;
   earnedAt: string | null;
   expiresAt: string | null;
-  spunAt: string | null;
+  spinAt: string | null;
   prizeTokens: number | null;
   paidTokens: number | null;
 };
@@ -521,7 +521,7 @@ export type OmniRushQualitySpinRecord = {
 export type KeepAwakeState = { enabled: boolean; active: boolean; available: boolean; forcedOff: boolean };
 
 /** GET /me/quality/spins: totals and the newest spins (up to 10). */
-export type OmniRushQualitySpinTotals = { spun: number; paidTokens: number; recent: OmniRushQualitySpinRecord[] };
+export type OmniRushQualitySpinTotals = { spin: number; paidTokens: number; recent: OmniRushQualitySpinRecord[] };
 
 export type OmniRushWheelSegment = { tokens: number; weight: number };
 
@@ -536,8 +536,8 @@ export type OmniRushQualitySpin = {
   preview: boolean;
   capped: boolean;
   reproducible: boolean;
-  alreadySpun: boolean;
-  spunAt: string | null;
+  alreadySpin: boolean;
+  spinAt: string | null;
   spinsAvailable: number;
   potBalance: number | null;
   /** big: prize >= 2M; jackpot: the top segment. */
@@ -546,7 +546,7 @@ export type OmniRushQualitySpin = {
   nearMiss: boolean;
   jackpotTokens: number | null;
   streakDays: number | null;
-  /** Earned by a client-grade session; spun on the richer wheel. */
+  /** Earned by a client-grade session; spin on the richer wheel. */
   clientGrade: boolean;
 };
 

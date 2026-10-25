@@ -36,7 +36,7 @@ const QUALITY = {
 };
 const SPIN = {
   tokens: 1000000, prize_tokens: 1000000, segment_index: 2, segments: SEGMENTS, preview: false, capped: false,
-  reproducible: true, already_spun: false, spun_at: "2026-10-04T12:00:00Z", spins_available: 1, pot_balance: 12500000,
+  reproducible: true, already_spin: false, spin_at: "2026-10-04T12:00:00Z", spins_available: 1, pot_balance: 12500000,
   celebrate: "none", near_miss: false, jackpot_tokens: 10000000, streak_days: 4,
 };
 
@@ -270,12 +270,12 @@ test("the profile read names the open session: /device/me?session_id=", async ()
 
 test("spins history: totals and the last 10 spins, each marked when replay-ready", () => {
   const spins = Array.from({ length: 12 }, (_, index) => ({
-    id: `spin-${index}`, status: index === 0 ? "ready" : "spun", reason: null, reproducible: true, client_grade: index === 1,
+    id: `spin-${index}`, status: index === 0 ? "ready" : "spin", reason: null, reproducible: true, client_grade: index === 1,
     session_id: "ses_1", earned_at: "2026-10-04T10:00:00Z", expires_at: "2026-10-06T10:00:00Z",
-    spun_at: index === 0 ? null : "2026-10-04T11:00:00Z", prize_tokens: index === 0 ? null : 1000000, paid_tokens: index === 0 ? null : 1000000,
+    spin_at: index === 0 ? null : "2026-10-04T11:00:00Z", prize_tokens: index === 0 ? null : 1000000, paid_tokens: index === 0 ? null : 1000000,
   }));
-  const history = parseSpinHistory({ spins, totals: { spun: 12, paid_tokens: 18250000 } });
-  assert.equal(history.spun, 12);
+  const history = parseSpinHistory({ spins, totals: { spin: 12, paid_tokens: 18250000 } });
+  assert.equal(history.spin, 12);
   assert.equal(history.paidTokens, 18250000);
   assert.equal(history.recent.length, 10);
   assert.equal(history.recent[0].prizeTokens, null);

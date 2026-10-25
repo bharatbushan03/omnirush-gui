@@ -44,8 +44,8 @@ export const SPIN_REFUSALS = /** @type {const} */ (["no_spins", "wheel_resting",
  *   preview: boolean,
  *   capped: boolean,
  *   reproducible: boolean,
- *   alreadySpun: boolean,
- *   spunAt: string | null,
+ *   alreadySpin: boolean,
+ *   spinAt: string | null,
  *   spinsAvailable: number,
  *   potBalance: number | null,
  *   celebrate: "none" | "big" | "jackpot",
@@ -177,8 +177,8 @@ export function parseSpinResult(value) {
     preview: value.preview === true,
     capped: value.capped === true,
     reproducible: value.reproducible === true,
-    alreadySpun: value.already_spun === true,
-    spunAt: isoTime(value.spun_at),
+    alreadySpin: value.already_spin === true,
+    spinAt: isoTime(value.spin_at),
     spinsAvailable: count(value.spins_available),
     potBalance: value.pot_balance === null || value.pot_balance === undefined || !Number.isFinite(pot) ? null : Math.max(0, pot),
     celebrate: value.celebrate === "big" || value.celebrate === "jackpot" ? value.celebrate : "none",
@@ -230,15 +230,16 @@ function parseSessionWork(value) {
   };
 }
 
-const SPIN_STATUSES = ["ready", "spun", "expired", "forfeit"];
+const SPIN_STATUSES = ["ready", "spin", "expired", "forfeit"];
 
 /** GET /me/quality/spins: the totals and the newest `limit` spins. */
 export function parseSpinHistory(value, limit = 10) {
   if (!value || typeof value !== "object") return null;
   const totals = value.totals && typeof value.totals === "object" ? value.totals : {};
   const spins = Array.isArray(value.spins) ? value.spins : [];
+  const spinCount = count(totals.spin);
   return {
-    spun: count(totals.spun),
+    spin: spinCount,
     paidTokens: count(totals.paid_tokens),
     recent: spins
       .filter((spin) => spin && typeof spin === "object" && text(spin.id))
@@ -252,7 +253,7 @@ export function parseSpinHistory(value, limit = 10) {
         sessionId: text(spin.session_id),
         earnedAt: isoTime(spin.earned_at),
         expiresAt: isoTime(spin.expires_at),
-        spunAt: isoTime(spin.spun_at),
+        spinAt: isoTime(spin.spin_at),
         prizeTokens: spin.prize_tokens === null || spin.prize_tokens === undefined ? null : count(spin.prize_tokens),
         paidTokens: spin.paid_tokens === null || spin.paid_tokens === undefined ? null : count(spin.paid_tokens),
       })),

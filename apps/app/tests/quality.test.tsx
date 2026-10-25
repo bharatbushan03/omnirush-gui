@@ -63,8 +63,8 @@ const spin: QualitySpin = {
   preview: false,
   capped: false,
   reproducible: true,
-  alreadySpun: false,
-  spunAt: "2026-10-04T12:00:00Z",
+  alreadySpin: false,
+  spinAt: "2026-10-04T12:00:00Z",
   spinsAvailable: 1,
   potBalance: 12_500_000,
   celebrate: "none",
@@ -373,7 +373,7 @@ describe("Good session wording, history and the count-up", () => {
           }}
         />,
       ),
-      renderToStaticMarkup(<RecentSpins spins={[{ id: "a", status: "spun", reason: null, reproducible: true, clientGrade: true, sessionId: null, earnedAt: null, expiresAt: null, spunAt: null, prizeTokens: 2_000_000, paidTokens: 2_000_000 }]} />),
+      renderToStaticMarkup(<RecentSpins spins={[{ id: "a", status: "spin", reason: null, reproducible: true, clientGrade: true, sessionId: null, earnedAt: null, expiresAt: null, spinAt: null, prizeTokens: 2_000_000, paidTokens: 2_000_000 }]} />),
     ].join("\n");
     // Only attribute values (test ids, data-*) may say "client"; no text a user reads.
     const text = html.replace(/<[^>]*>/g, " ");
@@ -386,14 +386,20 @@ describe("Good session wording, history and the count-up", () => {
 
   test("recent spins: the last 10, ★ on Good session ones", () => {
     const spins = Array.from({ length: 12 }, (_, index) => ({
-      id: `s${index}`, status: "spun" as const, reason: null, reproducible: true, clientGrade: index % 2 === 0, sessionId: null,
-      earnedAt: null, expiresAt: null, spunAt: null, prizeTokens: 500_000, paidTokens: 500_000,
+      id: `s${index}`, status: "spin" as const, reason: null, reproducible: true, clientGrade: index % 2 === 0, sessionId: null,
+      earnedAt: null, expiresAt: null, spinAt: null, prizeTokens: 500_000, paidTokens: 500_000,
     }));
     const html = renderToStaticMarkup(<RecentSpins spins={spins} />);
     expect(html.match(/<li /g)?.length).toBe(10);
     expect(html.match(/data-good-session/g)?.length).toBe(5);
     expect(html).toContain("★ 500K");
     expect(renderToStaticMarkup(<RecentSpins spins={[]} />)).toBe("");
+  });
+
+  test("recent spins without prize tokens display 'spin'", () => {
+    const spins = [{ id: "s1", status: "spin" as const, reason: null, reproducible: true, clientGrade: false, sessionId: null, earnedAt: null, expiresAt: null, spinAt: null, prizeTokens: null, paidTokens: null }];
+    const html = renderToStaticMarkup(<RecentSpins spins={spins} />);
+    expect(html).toContain("spin");
   });
 
   test("the count-up ends exactly on the server's prize and never passes it", () => {
